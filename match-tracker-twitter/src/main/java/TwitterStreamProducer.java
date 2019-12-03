@@ -1,3 +1,4 @@
+
 /**
  * Copyright 2019 Cathal Ryan
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,15 +27,13 @@ import java.util.concurrent.TimeUnit;
 
 import java.util.List;
 import com.google.common.collect.Lists;
-
 import com.rabbitmqwrapper.MQwrapper.RabbitMQWrapper;
 
-//mvn clean install && mvn exec:java -Dconsumer.term=Ireland -Dconsumer.key=klpfZNcyoeBd3skBFiyu3Jm8L -Dconsumer.secret=aveTt9jOOuaiyFbdzoN6IrRrBmAQoSpezAI1SXrXnhuxJBRhSq -Daccess.token=1192474707402149888-xvJBXXXXoo8qTXfadPo083VnTvTN5c -Daccess.token.secret=i40jQAjfE6LXuPmfbD2ANGlOEGM2obTSiuN6GKykNE58b
-
+//import java.io.FileWriter;
 
 public class TwitterStreamProducer {
 
-  public static void run(String searchTerm, String consumerKey, String consumerSecret, String token, String secret) throws Exception {
+	public static void run(String searchTerm, String consumerKey, String consumerSecret, String token, String secret) throws Exception {
     //  Create an appropriately sized blocking queue
     BlockingQueue<String> queue = new LinkedBlockingQueue<String>(10000);
 
@@ -61,34 +60,43 @@ public class TwitterStreamProducer {
 	
 	// Create wrapper object to be used to send to the queue
 	RabbitMQWrapper rmq = RabbitMQWrapper.getrmqw("IncomingTweetQueue");
-	
-    for (int msgRead = 0; msgRead < 100; msgRead++) {
+	//For creating test files
+	//FileWriter fileWriter = new FileWriter("test.json");
+	//fileWriter.write("{\n");
+	try {
+    for (int msgRead = 0; msgRead < 10000; msgRead++) {
       if (client.isDone()) {
+    	
         System.out.println("Client connection closed unexpectedly: " + client.getExitEvent().getMessage());
         break;
       }
-
       String msg = queue.poll(5, TimeUnit.SECONDS);
       if (msg == null) {
         System.out.println("Waiting...");
 		System.out.println(" ");
 		
       } else {
+    	//fileWriter.write(msg + ",\n");
 		rmq.writeToQueue(msg);
       }
     }
-    client.stop();
+	}
+	finally {
+		//fileWriter.write("}");
+		//fileWriter.close();
+		client.stop();
+	}
+    
 
   }
 
-  public static void main(String[] args) {
-    try {
-      TwitterStreamProducer.run(args[0], args[1], args[2], args[3], args[4]);
-    } catch (InterruptedException e) {
-      System.out.println(e);
-    }
-	catch (Exception e) {
-      System.out.println(e);
-    }
-  }
+	public static void main(String[] args) {
+		try {
+			TwitterStreamProducer.run(args[0], args[1], args[2], args[3], args[4]);
+		} catch (InterruptedException e) {
+			System.out.println(e);
+		} catch (Exception e) {
+			System.out.println(e);
+		}
+	}
 }
