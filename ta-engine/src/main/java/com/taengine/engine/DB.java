@@ -9,20 +9,9 @@ import java.util.Scanner;
 
 public class DB {
 
-
-	 
-	/**
-	 *
-	 * @author sqlitetutorial.net
-	 */	 
-	    /**
-	     * Connect to a sample database
-	     *
-	     * @param fileName the database file name
-	     */
 	    public static void createNewDatabase(String fileName) {
 	 
-	        String url = "jdbc:sqlite:../" + fileName;
+	        String url = fileName;
 	 
 	        try (Connection conn = DriverManager.getConnection(url)) {
 	            if (conn != null) {
@@ -55,16 +44,22 @@ public class DB {
 	    }
 	    
 	    public static void deleteDatabaseData(String fileName) {
-	    	String url = "jdbc:sqlite:../" + fileName;
+	    	String url = fileName;
 	   	 
 	        try (Connection conn = DriverManager.getConnection(url)) {
 	            if (conn != null) {
-	            	String sql = "DELETE * FROM words";
+	            	Statement stmt = conn.createStatement();
+	            	String sql = "DELETE FROM words";
+	            	stmt.execute(sql);
 	            }
 	 
 	        } catch (SQLException e) {
 	            System.out.println(e.getMessage());
 	        }
+	    }
+	    
+	    public static String getDatabase(String fileName) {
+	    	return "jdbc:sqlite:" + fileName;
 	    }
 	 
 	    /**
@@ -92,7 +87,7 @@ public class DB {
 	            }
 	    	
 	            // Will do nothing if db already exists
-	            createNewDatabase("test.db");
+	            createNewDatabase(getDatabase("test.db"));
 	            
 	            if (delete == true) {
 	            	deleteDatabaseData("test.db");

@@ -1,9 +1,20 @@
 package com.taengine.engine;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
 
 import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaPairRDD;
+import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.*;
 import org.apache.spark.streaming.*;
@@ -11,10 +22,46 @@ import org.apache.spark.streaming.api.java.*;
 import scala.Tuple2;
 
 public class Engine {
-	public static void write(JavaPairRDD<String, Integer> jds) {
-		//TODO: Write to database
-		System.out.println("Write method");
-		jds.foreachAsync(f -> System.out.println(f));
+	public static void write(Tuple2<String, Integer> jds, String dbName, String table){
+
+		String url = DB.getDatabase(dbName);
+		Connection conn = null;
+
+		try {
+			conn = DriverManager.getConnection(url);
+			// Does the word have to be updated or inserted
+			String sqlSelectStr = "SELECT * FROM " + table + " WHERE word=" + "'" + jds._1 + "'";
+			try (Statement stmt = conn.createStatement(); 
+					ResultSet rs = stmt.executeQuery(sqlSelectStr)) 
+			{
+				if (rs.next()) {
+					stmt.close();
+					// Do an update
+					String sqlUpdateStr = "UPDATE "+table+" SET count = count + ?, datetime = ? WHERE word = ?";
+					PreparedStatement pstmt = conn.prepareStatement(sqlUpdateStr);
+					pstmt.setInt(1, jds._2);
+					pstmt.setString(2, LocalDateTime.now().toString());
+					pstmt.setString(3, jds._1());
+					pstmt.execute();
+					pstmt.close();
+				} else {
+					stmt.close();
+					String sql2 = "INSERT INTO " + table + "(word,count,datetime) VALUES(?,?,?) ";
+					PreparedStatement pstmt = conn.prepareStatement(sql2);
+					pstmt.setString(1, jds._1);
+					pstmt.setInt(2, jds._2());
+					pstmt.setString(3, LocalDateTime.now().toString());
+					pstmt.execute();
+					pstmt.close();
+				}
+			} catch (SQLException e) {
+				System.out.println(e.getMessage());
+			}
+			conn.close();
+		} catch (SQLException e) {
+			System.out.println(e.getMessage());
+		}
+
 	}
 
 	public static JavaPairDStream<String, Integer> cleanAndReduce(JavaDStream<String> jds) {
@@ -47,7 +94,9 @@ public class Engine {
 		JavaDStream<String> customReceiverStream = jssc.receiverStream(new CustomReceiver());
 
 		JavaPairDStream<String, Integer> wordCounts = cleanAndReduce(customReceiverStream);
-		wordCounts.foreachRDD(s -> write(s));
+		wordCounts.foreachRDD(s -> {
+			s.foreach(f -> write(f, "db_1.db", "words"));
+		});
 		// words.print();
 		wordCounts.print();
 
