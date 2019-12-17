@@ -69,9 +69,13 @@ public class Engine {
 				.flatMap(x -> Arrays.asList(x.toLowerCase().replace("'", "").replace(",", "").split(" ")).iterator())
 				.filter(f -> f.startsWith("-") == false);
 		JavaPairDStream<String, Integer> wordCounts = words.mapToPair(s -> {
-			if (!s.startsWith("#")) {
+			if (!s.startsWith("#") & s.length()>1) {
 				return new Tuple2<>((s.substring(0, 1).toUpperCase() + s.substring(1)), 1);
-			} else if (s.length() > 2) {
+			}
+			else if (!s.startsWith("#")) {
+				return new Tuple2<>((s.toUpperCase()), 1);
+			}
+			else if (s.length() > 2) {
 				return new Tuple2<>((s.substring(0, 1) + s.substring(1, 2).toUpperCase() + s.substring(2)), 1);
 			} else {
 				return new Tuple2<>((s.substring(0, 1) + s.substring(1, 2).toUpperCase()), 1);
@@ -85,6 +89,7 @@ public class Engine {
 	public static void main(String[] args) throws Exception {
 
 		// String[] wordsToIgnore = {"RT"};
+		DB.createNewDatabase(DB.getDatabase(System.getProperty("user.dir")+"\\src\\main\\resources\\db_1.db"));
 		JavaSparkContext sc = new JavaSparkContext("local[2]", "TwitterStream");
 		sc.setLogLevel("WARN");
 		JavaStreamingContext jssc = new JavaStreamingContext(sc, new Duration(5000));
@@ -95,7 +100,7 @@ public class Engine {
 
 		JavaPairDStream<String, Integer> wordCounts = cleanAndReduce(customReceiverStream);
 		wordCounts.foreachRDD(s -> {
-			s.foreach(f -> write(f, "db_1.db", "words"));
+			s.foreach(f -> write(f, System.getProperty("user.dir")+"\\src\\main\\resources\\db_1.db", "words"));
 		});
 		// words.print();
 		wordCounts.print();
