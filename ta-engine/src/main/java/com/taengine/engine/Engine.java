@@ -1,5 +1,7 @@
 package com.taengine.engine;
 
+import java.io.Serializable;
+import java.net.URI;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -19,10 +21,21 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.*;
 import org.apache.spark.streaming.*;
 import org.apache.spark.streaming.api.java.*;
+import org.apache.spark.util.SerializableBuffer;
+import org.json.JSONObject;
+
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+
 import scala.Tuple2;
 
+import javax.websocket.*;
+
+@ClientEndpoint
 public class Engine {
-	public static void write(Tuple2<String, Integer> jds, String dbName, String table){
+	static Session session;
+	static final TimeObject timeObj = new TimeObject(); 
+	public static void write(Tuple2<String, Integer> jds, String dbName, String table) {
 
 		String url = DB.getDatabase(dbName);
 		Connection conn = null;
@@ -31,13 +44,11 @@ public class Engine {
 			conn = DriverManager.getConnection(url);
 			// Does the word have to be updated or inserted
 			String sqlSelectStr = "SELECT * FROM " + table + " WHERE word=" + "'" + jds._1 + "'";
-			try (Statement stmt = conn.createStatement(); 
-					ResultSet rs = stmt.executeQuery(sqlSelectStr)) 
-			{
+			try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sqlSelectStr)) {
 				if (rs.next()) {
 					stmt.close();
 					// Do an update
-					String sqlUpdateStr = "UPDATE "+table+" SET count = count + ?, datetime = ? WHERE word = ?";
+					String sqlUpdateStr = "UPDATE " + table + " SET count = count + ?, datetime = ? WHERE word = ?";
 					PreparedStatement pstmt = conn.prepareStatement(sqlUpdateStr);
 					pstmt.setInt(1, jds._2);
 					pstmt.setString(2, LocalDateTime.now().toString());
@@ -65,45 +76,93 @@ public class Engine {
 	}
 
 	public static JavaPairDStream<String, Integer> cleanAndReduce(JavaDStream<String> jds) {
-		JavaDStream<String> words = jds
-				.flatMap(x -> Arrays.asList(x.toLowerCase().replace("'", "").replace(",", "").split(" ")).iterator())
-				.filter(f -> f.startsWith("-") == false);
-		JavaPairDStream<String, Integer> wordCounts = words.mapToPair(s -> {
-			if (!s.startsWith("#") & s.length()>1) {
-				return new Tuple2<>((s.substring(0, 1).toUpperCase() + s.substring(1)), 1);
-			}
-			else if (!s.startsWith("#")) {
-				return new Tuple2<>((s.toUpperCase()), 1);
-			}
-			else if (s.length() > 2) {
-				return new Tuple2<>((s.substring(0, 1) + s.substring(1, 2).toUpperCase() + s.substring(2)), 1);
+		
+
+		// Parse the text from JSON and split into array of words
+		TimeObject to = new TimeObject();
+		JavaDStream<String> words = jds.flatMap(f -> {
+			JSONObject JO = new JSONObject(f);
+			String text = JO.get("text").toString();
+			timeObj.timestamp = JO.get("timestamp").toString();
+			// replace \u2026 ... sometimes at end of tweets
+			return Arrays.asList(text.toLowerCase().replace("'", "").replace(",", " ").split(" ")).iterator();
+		}).filter(word -> word.startsWith("-") == false);
+
+		// reduce the array to key value pairs
+		JavaPairDStream<String, Integer> wordCounts = words.mapToPair(word -> {
+			Tuple2<String, Integer> wordTuple;
+
+			if (!word.startsWith("#") & word.length() > 1) {
+				wordTuple = new Tuple2<>(word.substring(0, 1).toUpperCase() + word.substring(1), 1);
+			} else if (!word.startsWith("#")) {
+				wordTuple = new Tuple2<>(word.toUpperCase(), 1);
+			} else if (word.length() > 2) {
+				wordTuple = new Tuple2<>(word.substring(0, 1) + word.substring(1, 2).toUpperCase() + word.substring(2), 1);
 			} else {
-				return new Tuple2<>((s.substring(0, 1) + s.substring(1, 2).toUpperCase()), 1);
+				wordTuple = new Tuple2<>(word.substring(0, 1) + word.substring(1, 2).toUpperCase(), 1);
 			}
+			return wordTuple;
 		}).reduceByKey((i1, i2) -> i1 + i2);
+		
+		wordCounts = wordCounts.mapToPair(pair -> {JSONObject JO = new JSONObject();
+									System.out.println("finalize the json");
+									JO.put("text", pair._1);
+									JO.put("count", pair._2);
+									JO.put("timestamp", timeObj.timestamp);
+									String json = JO.toString();
+									Tuple2<String, Integer> pairWithJson = new Tuple2<>(json, pair._2);
+									
+									return pairWithJson;});
 
 		return wordCounts;
 
 	}
 
+	public static void sendToWS(Tuple2<String, Integer> message) {
+		// TODO: send in json format with the count field
+		session.getAsyncRemote().sendText(message._1);
+		System.out.println("Sending to WS");
+		System.out.println(message._1);
+	}
+
 	public static void main(String[] args) throws Exception {
 
 		// String[] wordsToIgnore = {"RT"};
-		DB.createNewDatabase(DB.getDatabase(System.getProperty("user.dir")+"\\src\\main\\resources\\db_1.db"));
+		DB.createNewDatabase(DB.getDatabase(System.getProperty("user.dir") + "\\src\\main\\resources\\db_1.db"));
 		JavaSparkContext sc = new JavaSparkContext("local[2]", "TwitterStream");
 		sc.setLogLevel("WARN");
-		JavaStreamingContext jssc = new JavaStreamingContext(sc, new Duration(5000));
-		jssc.checkpoint("file:///tmp/spark");
+		JavaStreamingContext jssc = new JavaStreamingContext(sc, new Duration(2000));
+		// jssc.checkpoint("file:///tmp/spark");
 		// Add a custom receiver for RabbitMQ.
 		// https://spark.apache.org/docs/2.3.1/streaming-custom-receivers.html
 		JavaDStream<String> customReceiverStream = jssc.receiverStream(new CustomReceiver());
+		WebSocketContainer container = null;
+
+		try {
+			container = ContainerProvider.getWebSocketContainer();
+			System.out.println("Connecting");
+			session = container.connectToServer(Engine.class,
+					URI.create("ws://localhost:8080/websocketserver-0.0.1-SNAPSHOT/data/spark_1"));
+		} catch (Exception e) {
+			System.out.println("Problem connecting to websocket server");
+			// e.printStackTrace();
+			// throw e;
+		}
 
 		JavaPairDStream<String, Integer> wordCounts = cleanAndReduce(customReceiverStream);
 		wordCounts.foreachRDD(s -> {
-			s.foreach(f -> write(f, System.getProperty("user.dir")+"\\src\\main\\resources\\db_1.db", "words"));
+			s.foreach(f -> {// write(f, System.getProperty("user.dir")+"\\src\\main\\resources\\db_1.db",
+							// "words");
+							 sendToWS(f);
+							//System.out.println(f._1);
+
+				// sendToWS(f);
+				// session.getAsyncRemote().sendText("hello");
+				// System.out.println("sendingggg...");
+			});
 		});
 		// words.print();
-		wordCounts.print();
+		
 
 		System.out.println("BEFORE start");
 		jssc.start();
@@ -112,4 +171,10 @@ public class Engine {
 
 	}
 
+}
+
+// Could not save the timestamp value without a class. Hacky :(
+class TimeObject implements Serializable {
+	private static final long serialVersionUID = 1L;
+	String timestamp;
 }

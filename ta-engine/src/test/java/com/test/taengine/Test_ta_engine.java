@@ -106,6 +106,7 @@ class Test_ta_engine {
 		while (computedPairs.isEmpty()) {
 			Thread.sleep(2000);
 		}
+		jssc.close();
 		sc.close();
 		Collections.sort(computedPairs);
 		Collections.sort(expectedPairs);

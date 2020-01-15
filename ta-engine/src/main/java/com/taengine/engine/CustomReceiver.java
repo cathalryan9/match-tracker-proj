@@ -54,8 +54,12 @@ public class CustomReceiver extends Receiver<String> {
 		      String messageStr = new String(delivery.getBody(), "UTF-8");
 		      JSONObject messageJSONObj = new JSONObject(messageStr);
 		      String message = messageJSONObj.get("text").toString();
-		      System.out.println(" [x] Received '" + message + "'");
-		      store(message);
+		      String timestamp = messageJSONObj.get("timestamp_ms").toString();
+		      messageJSONObj = new JSONObject();
+		      messageJSONObj.put("text", message);
+		      messageJSONObj.put("timestamp", timestamp);
+		      System.out.println(" [x] Received '" + messageJSONObj.toString() + "'");
+		      store(messageJSONObj.toString());
 		  };
 		RabbitMQWrapper rmq = RabbitMQWrapper.getrmqw("IncomingTweetQueue");
 	    try {
