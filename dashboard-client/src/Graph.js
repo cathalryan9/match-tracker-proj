@@ -1,4 +1,3 @@
-
 import React, {Component} from 'react';
 import { Container,Grid } from '@material-ui/core';
 import {
@@ -18,10 +17,15 @@ console.log("updated")
 }
 }
 shouldComponentUpdate(nextProps){
-	if(nextProps.noOfMessages % 8 == 0){	
+//const allEqual = arr => arr.every( val => val !== nextProps.data[0])
+  //              if(allEqual(this.props.data)){
+if(nextProps.data.length){
+	console.log("will update")	
+console.log(nextProps.data)
 return true
 }
 return false
+
 }
 
 render(){

@@ -32,7 +32,7 @@ class App extends Component{
         	}
 
 		this.setState(prevState => ({currentTimeInterval:new Date(prevState.currentTimeInterval.getTime() + 60000),
-				minutesArray:prevState.minutesArray.concat({"timestamp":prevState.currentTimeInterval.getUTCHours().toString() + ":" + prevState.currentTimeInterval.getUTCMinutes().toString(), "wordObject":{"word":mostFreqWord, "count":maxVal}})
+				minutesArray:prevState.minutesArray.concat({"timestamp":prevState.currentTimeInterval.getUTCHours().toString() + ":" + prevState.currentTimeInterval.getUTCMinutes().toString(), "word":mostFreqWord, "count":maxVal})
 				 }))
 	}
 
@@ -62,33 +62,35 @@ ws.onmessage = evt => {
 	}
 
 	var t1 = performance.now()
-	console.log(t1-t0)
+//	console.log(t1-t0)
 	var array = []
-	//Doesnt need to be done if only updating every 8 words
-	//this is the bottleneck for loop. Quickly becomes too big
-	//Put keyvalue pairs into an array for graph
-	for(const [key, value] of Object.entries(dataMap)){
-		//console.log(key, value)
-		array = array.concat({"word":key,"count":value})
-		
-	}
-	var t2 = performance.now()
-	console.log(t2-t1)
-//	function compare (a,b){if(a.count>b.count){return -1}if(a.count<a.count){return 1}return 0}
-	//Put the high counts first
-console.log("Num of words")
-console.log(array.length)
-	array.sort((a,b) => a.count < b.count)
-	//Shorten the data sent to graph
-	if(array.length>30){array=array.slice(0,30)}
+	console.log("num of messages")
+	console.log(this.state.noOfMessages)
+	if(this.state.noOfMessages % 8 == 0){
 
-	//Update only if the shortened array is different
-	        const allEqual = arr => arr.every( val => val !== array[0])
-        if(allEqual(this.state.freqArray)){
-	var t3 = performance.now()
-	console.log(t3-t2)
-		this.setState({freqArray:array,message: message.content, noOfMessages: this.state.noOfMessages + 1})
+		//Doesnt need to be done if only updating every 8 words
+		//this is the bottleneck for loop. Quickly becomes too big
+		//Put keyvalue pairs into an array for graph
+		for(const [key, value] of Object.entries(dataMap)){
+			array = array.concat({"word":key,"count":value})
+		}
+		var t2 = performance.now()
+//		console.log(t2-t1)
+	//	function compare (a,b){if(a.count>b.count){return -1}if(a.count<a.count){return 1}return 0}
+		//Put the high counts first
+
+		console.log("Num of words")
+		console.log(array.length)
+		array.sort((a,b) => a.count < b.count)
+		//Shorten the data sent to graph
+		if(array.length>30){array=array.slice(0,30)}
 }
+		var t3 = performance.now()
+//			console.log(t3-t2)
+
+			this.setState({freqArray:array,message: message.content, noOfMessages: this.state.noOfMessages + 1})
+//		}
+
         }
 
         ws.onclose = () => {
