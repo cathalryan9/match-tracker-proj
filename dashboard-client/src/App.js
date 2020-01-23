@@ -5,7 +5,6 @@ import {XAxis, Label} from 'recharts';
 const ws = new WebSocket('ws://10.0.2.2:8080/websocketserver-0.0.1-SNAPSHOT/data/10005');
 const dataMap = {};
 var currentMinuteMap = {};
-const XAxisComponent = (tick, label) => {return <XAxis interval={0} tick={tick}><Label value={label} offset={0}/></XAxis>};
 
 class App extends Component{
 	constructor(props){
@@ -64,8 +63,6 @@ ws.onmessage = evt => {
 	var t1 = performance.now()
 //	console.log(t1-t0)
 	var array = []
-	console.log("num of messages")
-	console.log(this.state.noOfMessages)
 	if(this.state.noOfMessages % 8 == 0){
 
 		//Doesnt need to be done if only updating every 8 words
@@ -113,10 +110,10 @@ ws.onmessage = evt => {
   spacing={3}
 >
 <Grid item xs={6}>
-<Graph data={this.state.freqData} XAxis={XAxisComponent(false,"Frequent Words (total)")} noOfMessages={this.state.noOfMessages}></Graph>
+<Graph data={this.state.freqData} noOfMessages={this.state.noOfMessages}></Graph>
 </Grid>
 <Grid item xs={6}>
-<Graph data={this.state.minutesData} XAxis={XAxisComponent(true,"Frequent Words (per min)")} noOfMessages={this.state.noOfMessages}></Graph>
+<Graph data={this.state.minutesData} noOfMessages={this.state.noOfMessages}></Graph>
 </Grid>
 </Grid>
 </Container>;
