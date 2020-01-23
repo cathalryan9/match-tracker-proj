@@ -6,7 +6,7 @@ BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Label, Text
 
 const CustomTooltip = ({active,payload,label}) => {
   if (active) {
-  return (<div><p>{payload[0].payload.word}</p><p>{payload[0].payload.count}</p></div>);
+  return (<div className="tooltip-container"><p>{payload[0].payload.word}</p><p>{payload[0].payload.count}</p></div>);
  }
  return null 
 }
