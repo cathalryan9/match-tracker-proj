@@ -35,6 +35,7 @@ import javax.websocket.*;
 public class Engine {
 	static Session session;
 	static final TimeObject timeObj = new TimeObject(); 
+	static ArrayList wordsToIgnore = new ArrayList(Arrays.asList("rt","the","and","of","in","vs","at","to","a","we","for","with","an","is"," ",""));
 	public static void write(Tuple2<String, Integer> jds, String dbName, String table) {
 
 		String url = DB.getDatabase(dbName);
@@ -86,7 +87,7 @@ public class Engine {
 			timeObj.timestamp = JO.get("timestamp").toString();
 			// replace \u2026 ... sometimes at end of tweets
 			return Arrays.asList(text.toLowerCase().replace("'", "").replace(",", " ").split(" ")).iterator();
-		}).filter(word -> word.startsWith("-") == false);
+		}).filter(word -> word.startsWith("-") == false).filter(word -> !Engine.wordsToIgnore.contains(word) );
 
 		// reduce the array to key value pairs
 		JavaPairDStream<String, Integer> wordCounts = words.mapToPair(word -> {
@@ -126,9 +127,9 @@ public class Engine {
 	}
 
 	public static void main(String[] args) throws Exception {
-
-		// String[] wordsToIgnore = {"RT"};
-		DB.createNewDatabase(DB.getDatabase(System.getProperty("user.dir") + "\\src\\main\\resources\\db_1.db"));
+		System.out.println(args[0]);
+		wordsToIgnore.add(args[0]);
+		//DB.createNewDatabase(DB.getDatabase(System.getProperty("user.dir") + "\\src\\main\\resources\\db_1.db"));
 		JavaSparkContext sc = new JavaSparkContext("local[2]", "TwitterStream");
 		sc.setLogLevel("WARN");
 		JavaStreamingContext jssc = new JavaStreamingContext(sc, new Duration(2000));
@@ -153,16 +154,11 @@ public class Engine {
 		wordCounts.foreachRDD(s -> {
 			s.foreach(f -> {// write(f, System.getProperty("user.dir")+"\\src\\main\\resources\\db_1.db",
 							// "words");
+							
 							 sendToWS(f);
-							//System.out.println(f._1);
-
-				// sendToWS(f);
-				// session.getAsyncRemote().sendText("hello");
-				// System.out.println("sendingggg...");
+							
 			});
 		});
-		// words.print();
-		
 
 		System.out.println("BEFORE start");
 		jssc.start();
