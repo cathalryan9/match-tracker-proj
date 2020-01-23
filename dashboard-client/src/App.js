@@ -5,7 +5,7 @@ import {XAxis, Label} from 'recharts';
 const ws = new WebSocket('ws://10.0.2.2:8080/websocketserver-0.0.1-SNAPSHOT/data/10005');
 const dataMap = {};
 var currentMinuteMap = {};
-const XAxisComponent = (tick, dataKey, label) => {return <XAxis interval={0} tick={tick} dataKey={dataKey}><Label value={label} offset={0}/></XAxis>};
+const XAxisComponent = (tick, label) => {return <XAxis interval={0} tick={tick}><Label value={label} offset={0}/></XAxis>};
 
 class App extends Component{
 	constructor(props){
@@ -13,8 +13,8 @@ class App extends Component{
 		console.log('app constructor')
 		this.state = {
 			message:"",
-			freqArray:[],
-			minutesArray:[],
+			freqData:{"yKey":"count","xKey":"word","tick": "false", "data":[]},
+			minutesData:{"yKey":"count","xKey":"timestamp", "tick": "true", "data":[]},
 			noOfMessages: 0,
 			currentTimeInterval: new Date()
 			}
@@ -32,7 +32,7 @@ class App extends Component{
         	}
 
 		this.setState(prevState => ({currentTimeInterval:new Date(prevState.currentTimeInterval.getTime() + 60000),
-				minutesArray:prevState.minutesArray.concat({"timestamp":prevState.currentTimeInterval.getUTCHours().toString() + ":" + prevState.currentTimeInterval.getUTCMinutes().toString(), "word":mostFreqWord, "count":maxVal})
+					minutesData:{"xKey":"timestamp", "yKey":"count", "tick":"true", "data":prevState.minutesData.data.concat({"timestamp":prevState.currentTimeInterval.getUTCHours().toString() + ":" + prevState.currentTimeInterval.getUTCMinutes().toString(), "word":mostFreqWord, "count":maxVal})}
 				 }))
 	}
 
@@ -88,9 +88,9 @@ ws.onmessage = evt => {
 		var t3 = performance.now()
 //			console.log(t3-t2)
 
-			this.setState({freqArray:array,message: message.content, noOfMessages: this.state.noOfMessages + 1})
+			this.setState({freqData:{"yKey":"count","xKey": "word", "tick": "false", "data":array},message: message.content, noOfMessages: this.state.noOfMessages + 1})
 //		}
-
+//console.log(this.state.freqData)
         }
 
         ws.onclose = () => {
@@ -113,10 +113,10 @@ ws.onmessage = evt => {
   spacing={3}
 >
 <Grid item xs={6}>
-<Graph data={this.state.freqArray} XAxis={XAxisComponent(false,"word","Frequent Words (total)")} noOfMessages={this.state.noOfMessages}></Graph>
+<Graph data={this.state.freqData} XAxis={XAxisComponent(false,"Frequent Words (total)")} noOfMessages={this.state.noOfMessages}></Graph>
 </Grid>
 <Grid item xs={6}>
-<Graph data={this.state.minutesArray} XAxis={XAxisComponent(true, "timestamp","Frequent Words (per min)")} noOfMessages={this.state.noOfMessages}></Graph>
+<Graph data={this.state.minutesData} XAxis={XAxisComponent(true,"Frequent Words (per min)")} noOfMessages={this.state.noOfMessages}></Graph>
 </Grid>
 </Grid>
 </Container>;
