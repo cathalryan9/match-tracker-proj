@@ -1,7 +1,29 @@
-.recharts-wrapper {background-color: #f9f9f9;
-padding-top: 20px;
-border-radius: 10px;
-box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 5px 20px 0 rgba(0, 0, 0, 0.19);}
+.app-container{
+text-align: center;
+}
+
+.title-name{
+padding-bottom: 20px;
+}
+
+.graph-box {background-color: #f9f9f9;
+border:solid 1px #1f416f;
+border-radius: 10px 10px 0px 0px;
+}
+
+.graph-title-bar{
+background-color: #1f416f;
+border-radius: 10px 10px 0px 0px;
+padding: 10px;
+width:100%;
+text-align: center;
+color: #f9f9f9;
+font-weight: bold;
+}
+
+.graph-container{
+padding-top:20px;
+}
 
 .tooltip-container{
 padding:5px;

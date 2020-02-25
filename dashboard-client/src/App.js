@@ -9,13 +9,14 @@ var currentMinuteMap = {};
 class App extends Component{
 	constructor(props){
 		super(props)
-		console.log('app constructor')
 		this.state = {
 			message:"",
-			freqData:{"yKey":"count","xKey":"word","tick": "false", "data":[]},
-			minutesData:{"yKey":"count","xKey":"timestamp", "tick": "true", "data":[]},
+			freqData:{"graphTitle":"Total Word Count (Top 30)","yKey":"count","xKey":"word","tick": "false", "data":[]},
+			minutesData:{"graphTitle":"Top Word In Interval (1 Minute)","yKey":"count","xKey":"timestamp", "tick": "true", "data":[]},
+			hashtagData:{"graphTitle":"Hashtag Count (Top 30)","yKey":"count","xKey":"word","tick":"false", "data":[]},
 			noOfMessages: 0,
-			currentTimeInterval: new Date()
+			currentTimeInterval: new Date(),
+			updateInterval:10
 			}
 	}
 
@@ -31,7 +32,10 @@ class App extends Component{
         	}
 
 		this.setState(prevState => ({currentTimeInterval:new Date(prevState.currentTimeInterval.getTime() + 60000),
-					minutesData:{"xKey":"timestamp", "yKey":"count", "tick":"true", "data":prevState.minutesData.data.concat({"timestamp":prevState.currentTimeInterval.getUTCHours().toString() + ":" + prevState.currentTimeInterval.getUTCMinutes().toString(), "word":mostFreqWord, "count":maxVal})}
+					minutesData:{"graphTitle":"Top Word In Interval (1 Minute)","xKey":"timestamp", "yKey":"count", "tick":"true", 
+						"data":prevState.minutesData.data.concat({"timestamp":prevState.currentTimeInterval.getUTCHours().toString() + ":" 
+							+ prevState.currentTimeInterval.getUTCMinutes().toString(), "word":mostFreqWord, "count":maxVal})},
+					updateInterval: Math.round(prevState.noOfMessages/50)
 				 }))
 	}
 
@@ -53,7 +57,7 @@ ws.onmessage = evt => {
 		currentMinuteMap[word] = 1
 	}else if(!(word in currentMinuteMap)){
 		currentMinuteMap[word] = 1
-		dataMap[word] = dataMap[word] + 1	
+		dataMap[word] = dataMap[word] + 1
 	}
 	else{
 		currentMinuteMap[word] = currentMinuteMap[word] + 1
@@ -62,32 +66,42 @@ ws.onmessage = evt => {
 
 	var t1 = performance.now()
 //	console.log(t1-t0)
-	var array = []
-	if(this.state.noOfMessages % 8 == 0){
+	var wordArray = []
+	var hashtagArray = []
+	if(this.state.noOfMessages % this.state.updateInterval == 0){
 
-		//Doesnt need to be done if only updating every 8 words
+		//Doesnt need to be done if only updating every 10 words
 		//this is the bottleneck for loop. Quickly becomes too big
 		//Put keyvalue pairs into an array for graph
 		for(const [key, value] of Object.entries(dataMap)){
-			array = array.concat({"word":key,"count":value})
+			if(key.startsWith("#")){
+				hashtagArray = hashtagArray.concat({"word":key,"count":value})
+			}
+			else{
+				wordArray = wordArray.concat({"word":key,"count":value})
+			}
 		}
 		var t2 = performance.now()
 //		console.log(t2-t1)
-	//	function compare (a,b){if(a.count>b.count){return -1}if(a.count<a.count){return 1}return 0}
-		//Put the high counts first
 
 		console.log("Num of words")
-		console.log(array.length)
-		array.sort((a,b) => a.count < b.count)
+		console.log(wordArray.length)
+		wordArray.sort((a,b) => a.count < b.count)
+		hashtagArray.sort((a,b) => a.count < b.count)
 		//Shorten the data sent to graph
-		if(array.length>30){array=array.slice(0,30)}
-}
+		
+		if(wordArray.length>30){wordArray=wordArray.slice(0,30)}
+		if(hashtagArray.length>30){hashtagArray=hashtagArray.slice(0,30)}
+}		
 		var t3 = performance.now()
 //			console.log(t3-t2)
 
-			this.setState({freqData:{"yKey":"count","xKey": "word", "tick": "false", "data":array},message: message.content, noOfMessages: this.state.noOfMessages + 1})
-//		}
-//console.log(this.state.freqData)
+
+			this.setState({
+				freqData:{"graphTitle":"Total Word Count (Top 30)","yKey":"count","xKey": "word", "tick": "false", "data":wordArray},
+				hashtagData:{"graphTitle":"Hashtag Count (Top 30)","yKey":"count","xKey":"word","tick":"false", "data":hashtagArray},
+				message: message.content, noOfMessages: this.state.noOfMessages + 1
+			})
         }
 
         ws.onclose = () => {
@@ -100,20 +114,26 @@ ws.onmessage = evt => {
 	}
 }
 	render(){
-	return <Container>
+	return <Container className="app-container">
 		<h1 className="title-name">Twitter Feed Dashboard</h1>
 		<Grid
   container
   direction="row"
   justify="center"
   alignItems="center"
-  spacing={3}
+  spacing={1}
 >
-<Grid item xs={6}>
+<Grid item xs={6} >
 <Graph data={this.state.freqData} noOfMessages={this.state.noOfMessages}></Graph>
 </Grid>
-<Grid item xs={6}>
+<Grid item xs={6} >
 <Graph data={this.state.minutesData} noOfMessages={this.state.noOfMessages}></Graph>
+</Grid>
+<Grid item xs={6}>
+<h2>Total words: {this.state.noOfMessages}</h2>
+</Grid>
+<Grid item xs={6}>
+<Graph data={this.state.hashtagData} noOfMessages={this.state.noOfMessages}></Graph>
 </Grid>
 </Grid>
 </Container>;
