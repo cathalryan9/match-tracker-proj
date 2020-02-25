@@ -13,24 +13,24 @@ import com.google.gson.JsonObject;
 
 import websocketserver.*;
 
-@ServerEndpoint(value = "/data/{username}", decoders = MessageDecoder.class, encoders = MessageEncoder.class)
-public class WebSocketServer {
+@ServerEndpoint(value = "/word_count/{username}", decoders = MessageDecoder.class, encoders = MessageEncoder.class)
+public class WordCountWebSocket {
 
 	private Session session;
-	private static Set<WebSocketServer> clientSessions = new HashSet<WebSocketServer>();
-	private static Set<WebSocketServer> sparkSessions = new HashSet<WebSocketServer>();
+	private static Set<WordCountWebSocket> clientSessions = new HashSet<WordCountWebSocket>();
+	private static Set<WordCountWebSocket> sparkSessions = new HashSet<WordCountWebSocket>();
 
 	@OnOpen
 	public void onOpen(Session session, @PathParam("username") String username) throws IOException {
-		Message message = new Message();
-		message.setFrom(username);
+		session.setMaxTextMessageBufferSize(256000);
+		System.out.println("open");
 		this.session = session;
 		if (username.equals("spark_1")) {
 			sparkSessions.add(this);
-			message.setContent("Spark Server Connected");
+			System.out.println("Spark Server Connected");
 		} else {
 			clientSessions.add(this);
-			message.setContent("Client Connected!");
+			System.out.println("Client Connected!");
 		}
 		//broadcast(message);
 	}
@@ -39,7 +39,7 @@ public class WebSocketServer {
 	public void onMessage(Session session, Message message) {
 		Message newMessage = new Message();
 		newMessage.setFrom("spark");
-		System.out.println(message.getContent());
+		//System.out.println(message.getContent());
 		newMessage.setContent(message.getContent());
 		broadcast(newMessage);
 	}
@@ -60,6 +60,7 @@ public class WebSocketServer {
 
 	// Send the dataset to the clients
 	private static void broadcast(Message message) {
+		System.out.println("new message");
 		clientSessions.forEach(endpoint -> {
 			synchronized (endpoint) {
 				try {
@@ -67,6 +68,7 @@ public class WebSocketServer {
 				} catch (IOException | EncodeException e) {
 					e.printStackTrace();
 				}
+				System.out.println("end of old message");
 			}
 		});
 	}

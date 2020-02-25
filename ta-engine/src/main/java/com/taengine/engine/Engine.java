@@ -13,6 +13,9 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaPairRDD;
@@ -21,6 +24,7 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.*;
 import org.apache.spark.streaming.*;
 import org.apache.spark.streaming.api.java.*;
+import org.apache.spark.streaming.dstream.DStream;
 import org.apache.spark.util.SerializableBuffer;
 import org.json.JSONObject;
 
@@ -33,9 +37,19 @@ import javax.websocket.*;
 
 @ClientEndpoint
 public class Engine {
-	static Session session;
-	static final TimeObject timeObj = new TimeObject(); 
-	static ArrayList wordsToIgnore = new ArrayList(Arrays.asList("rt","the","and","of","in","vs","at","to","a","we","for","with","an","is"," ",""));
+	static Session wordCountSession;
+	static Session timeIntervalSession;
+	static final TimeObject timeObj = new TimeObject();
+	static ArrayList<String> wordsToIgnore = new ArrayList<String>(
+			Arrays.asList("rt", "the", "and", "&amp", "i", "you", "from", "are", "was", "what", "has", "this", "of",
+					"if", "it", "in", "vs", "at", "to", "a", "we", "for", "with", "an", "is", " ", ""));
+	// current interval
+	static Date currentTimeObj = new Date();
+	// mapofcurrentinterval
+	static Map<String, Integer> currentIntervalMap = new HashMap<String, Integer>();
+	// array of all intervals
+	static Map<String, Integer> wordCountMap = new HashMap<String, Integer>();
+
 	public static void write(Tuple2<String, Integer> jds, String dbName, String table) {
 
 		String url = DB.getDatabase(dbName);
@@ -76,91 +90,137 @@ public class Engine {
 
 	}
 
-	public static JavaPairDStream<String, Integer> cleanAndReduce(JavaDStream<String> jds) {
-		
+	public static JavaRDD<String> cleanAndReduce(JavaRDD<String> jds) {
 
 		// Parse the text from JSON and split into array of words
-		TimeObject to = new TimeObject();
-		JavaDStream<String> words = jds.flatMap(f -> {
+		jds = jds.flatMap(f -> {
+			System.out.println("flatmap");
 			JSONObject JO = new JSONObject(f);
 			String text = JO.get("text").toString();
 			timeObj.timestamp = JO.get("timestamp").toString();
 			// replace \u2026 ... sometimes at end of tweets
 			return Arrays.asList(text.toLowerCase().replace("'", "").replace(",", " ").split(" ")).iterator();
-		}).filter(word -> word.startsWith("-") == false).filter(word -> !Engine.wordsToIgnore.contains(word) );
+		}).filter(word -> word.startsWith("-") == false).filter(word -> !Engine.wordsToIgnore.contains(word));
 
 		// reduce the array to key value pairs
-		JavaPairDStream<String, Integer> wordCounts = words.mapToPair(word -> {
+		JavaPairRDD<String, Integer> wordCounts = jds.mapToPair(word -> {
 			Tuple2<String, Integer> wordTuple;
-
+			System.out.println("map and reduce");
 			if (!word.startsWith("#") & word.length() > 1) {
 				wordTuple = new Tuple2<>(word.substring(0, 1).toUpperCase() + word.substring(1), 1);
 			} else if (!word.startsWith("#")) {
 				wordTuple = new Tuple2<>(word.toUpperCase(), 1);
 			} else if (word.length() > 2) {
-				wordTuple = new Tuple2<>(word.substring(0, 1) + word.substring(1, 2).toUpperCase() + word.substring(2), 1);
+				wordTuple = new Tuple2<>(word.substring(0, 1) + word.substring(1, 2).toUpperCase() + word.substring(2),
+						1);
 			} else {
 				wordTuple = new Tuple2<>(word.substring(0, 1) + word.substring(1, 2).toUpperCase(), 1);
 			}
 			return wordTuple;
 		}).reduceByKey((i1, i2) -> i1 + i2);
-		
-		wordCounts = wordCounts.mapToPair(pair -> {JSONObject JO = new JSONObject();
-									System.out.println("finalize the json");
-									JO.put("text", pair._1);
-									JO.put("count", pair._2);
-									JO.put("timestamp", timeObj.timestamp);
-									String json = JO.toString();
-									Tuple2<String, Integer> pairWithJson = new Tuple2<>(json, pair._2);
-									
-									return pairWithJson;});
 
-		return wordCounts;
+		JavaRDD<String> jsonObj = wordCounts.map(pair -> {
+			JSONObject JO = new JSONObject();
+			JO.put("text", pair._1);
+			JO.put("count", pair._2);
+			JO.put("timestamp", timeObj.timestamp);
+			String json = JO.toString();
+			System.out.println(pair._1);
+			if (!wordCountMap.containsKey(pair._1)) {
+				wordCountMap.put(pair._1, pair._2);
+				currentIntervalMap.put(pair._1, pair._2);
+			} else if (!currentIntervalMap.containsKey(pair._1)) {
+				System.out.println("not in current interval");
+				wordCountMap.replace(pair._1, wordCountMap.get(pair._1) + pair._2);
+				currentIntervalMap.put(pair._1, pair._2);
+			} else {
+				wordCountMap.replace(pair._1, wordCountMap.get(pair._1) + pair._2);
+				currentIntervalMap.put(pair._1, currentIntervalMap.get(pair._1) + pair._2);
+			}
+			return json;
+		});
+		System.out.println("end of clean and reduce");
+		return jsonObj;
 
 	}
 
-	public static void sendToWS(Tuple2<String, Integer> message) {
-		// TODO: send in json format with the count field
-		session.getAsyncRemote().sendText(message._1);
-		System.out.println("Sending to WS");
-		System.out.println(message._1);
+	public static void sendToWS(Session session, String message) {
+		System.out.println("Message: " + message);
+		System.out.println("Message size(bytes): " + message.getBytes().length);
+		if (session.isOpen()) {
+			System.out.println("Sending to WS" + session.getRequestURI().getPath());
+			session.getAsyncRemote().sendText(message);
+		}
 	}
 
 	public static void main(String[] args) throws Exception {
 		System.out.println(args[0]);
-		wordsToIgnore.add(args[0]);
-		//DB.createNewDatabase(DB.getDatabase(System.getProperty("user.dir") + "\\src\\main\\resources\\db_1.db"));
+		wordsToIgnore.add(args[0].toLowerCase());
+		// DB.createNewDatabase(DB.getDatabase(System.getProperty("user.dir") +
+		// "\\src\\main\\resources\\db_1.db"));
 		JavaSparkContext sc = new JavaSparkContext("local[2]", "TwitterStream");
 		sc.setLogLevel("WARN");
-		JavaStreamingContext jssc = new JavaStreamingContext(sc, new Duration(2000));
+		JavaStreamingContext jssc = new JavaStreamingContext(sc, new Duration(4000));
 		// jssc.checkpoint("file:///tmp/spark");
 		// Add a custom receiver for RabbitMQ.
 		// https://spark.apache.org/docs/2.3.1/streaming-custom-receivers.html
-		JavaDStream<String> customReceiverStream = jssc.receiverStream(new CustomReceiver());
-		WebSocketContainer container = null;
+		JavaReceiverInputDStream<String> customReceiverStream = jssc.receiverStream(new CustomReceiver());
+		WebSocketContainer wordCountContainer = null;
+		WebSocketContainer timeIntervalContainer = null;
 
 		try {
-			container = ContainerProvider.getWebSocketContainer();
+			wordCountContainer = ContainerProvider.getWebSocketContainer();
+			timeIntervalContainer = ContainerProvider.getWebSocketContainer();
 			System.out.println("Connecting");
-			session = container.connectToServer(Engine.class,
-					URI.create("ws://localhost:8080/websocketserver-0.0.1-SNAPSHOT/data/spark_1"));
+			wordCountSession = wordCountContainer.connectToServer(Engine.class,
+					URI.create("ws://localhost:8080/websocketserver-0.0.1-SNAPSHOT/word_count/spark_1"));
+			timeIntervalSession = timeIntervalContainer.connectToServer(Engine.class,
+					URI.create("ws://localhost:8080/websocketserver-0.0.1-SNAPSHOT/time_interval_count/spark_1"));
 		} catch (Exception e) {
 			System.out.println("Problem connecting to websocket server");
 			// e.printStackTrace();
 			// throw e;
 		}
 
-		JavaPairDStream<String, Integer> wordCounts = cleanAndReduce(customReceiverStream);
-		wordCounts.foreachRDD(s -> {
-			s.foreach(f -> {// write(f, System.getProperty("user.dir")+"\\src\\main\\resources\\db_1.db",
-							// "words");
-							
-							 sendToWS(f);
-							
-			});
+		JavaDStream<String> cleanedStream = customReceiverStream.transform(rdd -> {
+			return cleanAndReduce(rdd);
 		});
 
-		System.out.println("BEFORE start");
+		cleanedStream.foreachRDD(s -> {
+			System.out.println("for each rdd2");
+			List<JSONObject> messageList = new ArrayList<JSONObject>();
+
+			// Words added to maps in clean and reduce method
+			if (!wordCountMap.isEmpty()) {
+				for (Map.Entry<String, Integer> entry : wordCountMap.entrySet()) {
+					// construct json object
+					JSONObject JO = new JSONObject();
+					JO.put("text", entry.getKey());
+					JO.put("count", entry.getValue());
+					// JO.put("timestamp", timeObj.timestamp);
+					String json = JO.toString();
+					messageList.add(JO);
+				}
+				messageList.sort((o1, o2) -> {
+					if ((int) o1.get("count") < (int) o2.get("count")) {
+						return 1;
+					} else if ((int) o1.get("count") > (int) o2.get("count")) {
+						return -1;
+					}
+					return 0;
+				});
+				// If the number of words is > 30, take the largest 30 by count
+				if (messageList.size() > 30) {
+					messageList = messageList.subList(0, 30);
+				}
+				
+				JSONObject[] arr = messageList.toArray(new JSONObject[messageList.size()]);
+				String messageArrayAsString = messageList.toString();
+				sendToWS(wordCountSession, messageArrayAsString);
+			}
+			// sendToWS(timeIntervalSession, messageArrayAsString );
+		});
+
 		jssc.start();
 
 		jssc.awaitTermination();
