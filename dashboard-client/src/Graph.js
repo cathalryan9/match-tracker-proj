@@ -6,7 +6,7 @@ BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Label, Text
 
 const CustomTooltip = ({active,payload,label}) => {
   if (active) {
-  return (<div className="tooltip-container"><p>{payload[0].payload.word}</p><p>{payload[0].payload.count}</p></div>);
+  return (<div className="tooltip-container"><p>{payload[0].payload.text}</p><p>{payload[0].payload.count}</p></div>);
  }
  return null 
 }
@@ -16,15 +16,12 @@ class Graph extends Component{
 constructor(props){
 	super(props)
 }
-componentDidUpdate(prevProps){
-	if(this.props.data !== prevProps.data){
-	}
-}
 shouldComponentUpdate(nextProps){
-	if(nextProps.data.data.length){
+		if(this.props.data !== nextProps.data){
 		return true
-	}
-	return false
+        }
+return false
+
 }
 
 render(){
