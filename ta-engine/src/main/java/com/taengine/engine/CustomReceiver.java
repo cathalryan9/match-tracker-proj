@@ -52,14 +52,22 @@ public class CustomReceiver extends Receiver<String> {
 		// open new socket to stream the data
 		DeliverCallback deliverCallback = (consumerTag, delivery) -> {
 		      String messageStr = new String(delivery.getBody(), "UTF-8");
-		      JSONObject messageJSONObj = new JSONObject(messageStr);
-		      String message = messageJSONObj.get("text").toString();
-		      String timestamp = messageJSONObj.get("timestamp_ms").toString();
-		      messageJSONObj = new JSONObject();
-		      messageJSONObj.put("text", message);
-		      messageJSONObj.put("timestamp", timestamp);
-		      System.out.println(" [x] Received '" + messageJSONObj.toString() + "'");
-		      store(messageJSONObj.toString());
+		      JSONObject tweetJSONObj = new JSONObject(messageStr);
+		      
+		      String text = null;
+				try {
+					JSONObject extendedTweetJSONObj = new JSONObject(tweetJSONObj.get("extended_tweet"));
+					text = extendedTweetJSONObj.getString("full_text");
+				} catch(JSONException e) {
+					text = tweetJSONObj.getString("text");
+				}
+		      
+		      String timestamp = tweetJSONObj.get("timestamp_ms").toString();
+		      tweetJSONObj = new JSONObject();
+		      tweetJSONObj.put("text", text);
+		      tweetJSONObj.put("timestamp", timestamp);
+		      System.out.println(" [x] Received '" + tweetJSONObj.toString() + "'");
+		      store(tweetJSONObj.toString());
 		  };
 		RabbitMQWrapper rmq = RabbitMQWrapper.getrmqw("IncomingTweetQueue");
 	    try {
