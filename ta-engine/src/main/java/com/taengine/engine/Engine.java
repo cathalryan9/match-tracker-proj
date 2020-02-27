@@ -112,6 +112,7 @@ public class Engine {
 			} else if (Long.parseLong(JO.get("timestamp").toString()) > (long) (currentTimeObj.getTime() + 60000)) {
 
 				System.out.println("end of interval");
+				// error on line 166 v
 				String word = Collections.max(currentIntervalMap.entrySet(), Map.Entry.comparingByValue()).getKey();
 				intervalsMap.put(Long.parseLong(JO.get("timestamp").toString()), word);
 				currentIntervalMap.clear();
@@ -150,7 +151,7 @@ public class Engine {
 			JSONObject JO = new JSONObject();
 			JO.put("text", pair._1);
 			JO.put("count", pair._2);
-			JO.put("timestamp", timeObj.timestamp);
+			//JO.put("timestamp", timeObj.timestamp);
 			String json = JO.toString();
 			if (!wordCountMap.containsKey(pair._1)) {
 				wordCountMap.put(pair._1, pair._2);
@@ -194,7 +195,7 @@ public class Engine {
 	public static List<JSONObject> createSortedList(Map<String, Integer> m) {
 		if (!m.isEmpty()) {
 			List<JSONObject> messageList = new ArrayList<JSONObject>();
-			for (Map.Entry<String, Integer> entry : wordCountMap.entrySet()) {
+			for (Map.Entry<String, Integer> entry : m.entrySet()) {
 				// construct json object
 				JSONObject JO = new JSONObject();
 				JO.put("text", entry.getKey());
@@ -244,8 +245,8 @@ public class Engine {
 					URI.create("ws://localhost:8080/websocketserver-0.0.1-SNAPSHOT/word_count/spark_1"));
 			timeIntervalSession = timeIntervalContainer.connectToServer(Engine.class,
 					URI.create("ws://localhost:8080/websocketserver-0.0.1-SNAPSHOT/time_interval_count/spark_1"));
-			//hashtagCountSession = hashtagCountContainer.connectToServer(Engine.class,
-			//		URI.create("ws://localhost:8080/websocketserver-0.0.1-SNAPSHOT/hashtag_count/spark_1"));
+			hashtagCountSession = hashtagCountContainer.connectToServer(Engine.class,
+					URI.create("ws://localhost:8080/websocketserver-0.0.1-SNAPSHOT/hashtag_count/spark_1"));
 		} catch (Exception e) {
 			System.out.println("Problem connecting to websocket server");
 			// e.printStackTrace();
@@ -265,7 +266,7 @@ public class Engine {
 			
 			List<JSONObject> hashtagCountList = createSortedList(hashtagCountMap);
 			if (hashtagCountList != null) {
-				//sendToWS(hashtagCountSession, hashtagCountListAsString.toString());
+				sendToWS(hashtagCountSession, hashtagCountList.toString());
 			}
 
 			// sendToWS(timeIntervalSession, messageArrayAsString );
