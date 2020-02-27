@@ -12,6 +12,7 @@ import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -26,6 +27,7 @@ import org.apache.spark.streaming.*;
 import org.apache.spark.streaming.api.java.*;
 import org.apache.spark.streaming.dstream.DStream;
 import org.apache.spark.util.SerializableBuffer;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import com.google.gson.Gson;
@@ -38,6 +40,7 @@ import javax.websocket.*;
 @ClientEndpoint
 public class Engine {
 	static Session wordCountSession;
+	static Session hashtagCountSession;
 	static Session timeIntervalSession;
 	static final TimeObject timeObj = new TimeObject();
 	static ArrayList<String> wordsToIgnore = new ArrayList<String>(
@@ -47,8 +50,12 @@ public class Engine {
 	static Date currentTimeObj = new Date();
 	// mapofcurrentinterval
 	static Map<String, Integer> currentIntervalMap = new HashMap<String, Integer>();
-	// array of all intervals
+	// map of all intervals
+	static Map<Long, String> intervalsMap = new HashMap<Long, String>();
+	// map of all words
 	static Map<String, Integer> wordCountMap = new HashMap<String, Integer>();
+	// map of hashtags
+	static Map<String, Integer> hashtagCountMap = new HashMap<String, Integer>();
 
 	public static void write(Tuple2<String, Integer> jds, String dbName, String table) {
 
@@ -91,21 +98,41 @@ public class Engine {
 	}
 
 	public static JavaRDD<String> cleanAndReduce(JavaRDD<String> jds) {
-
+		// Transformations are lazy. Need to call an action to trigger them e.g count()
+		System.out.println("clean and reduce");
 		// Parse the text from JSON and split into array of words
 		jds = jds.flatMap(f -> {
-			System.out.println("flatmap");
+			// System.out.println("flatmap");
 			JSONObject JO = new JSONObject(f);
-			String text = JO.get("text").toString();
-			timeObj.timestamp = JO.get("timestamp").toString();
+
+			String text = JO.getString("text");
+			System.out.println(text);
+			if (currentTimeObj == null) {
+				currentTimeObj = new Date(Long.parseLong(JO.get("timestamp").toString()));
+			} else if (Long.parseLong(JO.get("timestamp").toString()) > (long) (currentTimeObj.getTime() + 60000)) {
+
+				System.out.println("end of interval");
+				String word = Collections.max(currentIntervalMap.entrySet(), Map.Entry.comparingByValue()).getKey();
+				intervalsMap.put(Long.parseLong(JO.get("timestamp").toString()), word);
+				currentIntervalMap.clear();
+				currentTimeObj.setTime(currentTimeObj.getTime() + 60000);
+			}
+
 			// replace \u2026 ... sometimes at end of tweets
 			return Arrays.asList(text.toLowerCase().replace("'", "").replace(",", " ").split(" ")).iterator();
 		}).filter(word -> word.startsWith("-") == false).filter(word -> !Engine.wordsToIgnore.contains(word));
 
+		JavaRDD<String> hashtags = jds.filter(f -> f.startsWith("#"));
+
+		JavaPairRDD<String, Integer> hashtagCounts = hashtags.mapToPair(hashtag -> {
+			Tuple2<String, Integer> hashtagTuple = new Tuple2<>(
+					hashtag.substring(0, 1) + hashtag.substring(1, 2).toUpperCase() + hashtag.substring(2), 1);
+			return hashtagTuple;
+		});
+
 		// reduce the array to key value pairs
 		JavaPairRDD<String, Integer> wordCounts = jds.mapToPair(word -> {
 			Tuple2<String, Integer> wordTuple;
-			System.out.println("map and reduce");
 			if (!word.startsWith("#") & word.length() > 1) {
 				wordTuple = new Tuple2<>(word.substring(0, 1).toUpperCase() + word.substring(1), 1);
 			} else if (!word.startsWith("#")) {
@@ -125,7 +152,6 @@ public class Engine {
 			JO.put("count", pair._2);
 			JO.put("timestamp", timeObj.timestamp);
 			String json = JO.toString();
-			System.out.println(pair._1);
 			if (!wordCountMap.containsKey(pair._1)) {
 				wordCountMap.put(pair._1, pair._2);
 				currentIntervalMap.put(pair._1, pair._2);
@@ -139,7 +165,19 @@ public class Engine {
 			}
 			return json;
 		});
+		hashtagCounts.foreach(pair -> {
+			if (!hashtagCountMap.containsKey(pair._1)) {
+				hashtagCountMap.put(pair._1, pair._2);
+			} else {
+				hashtagCountMap.replace(pair._1, hashtagCountMap.get(pair._1) + pair._2);
+			}
+
+		});
+
+		System.out.println("Word count: " + jsonObj.count());
+		System.out.println("Hashtag count: " + hashtagCounts.count());
 		System.out.println("end of clean and reduce");
+
 		return jsonObj;
 
 	}
@@ -151,6 +189,34 @@ public class Engine {
 			System.out.println("Sending to WS" + session.getRequestURI().getPath());
 			session.getAsyncRemote().sendText(message);
 		}
+	}
+
+	public static List<JSONObject> createSortedList(Map<String, Integer> m) {
+		if (!m.isEmpty()) {
+			List<JSONObject> messageList = new ArrayList<JSONObject>();
+			for (Map.Entry<String, Integer> entry : wordCountMap.entrySet()) {
+				// construct json object
+				JSONObject JO = new JSONObject();
+				JO.put("text", entry.getKey());
+				JO.put("count", entry.getValue());
+				String json = JO.toString();
+				messageList.add(JO);
+			}
+			messageList.sort((o1, o2) -> {
+				if ((int) o1.get("count") < (int) o2.get("count")) {
+					return 1;
+				} else if ((int) o1.get("count") > (int) o2.get("count")) {
+					return -1;
+				}
+				return 0;
+			});
+			// If the number of words is > 30, take the largest 30 by count
+			if (messageList.size() > 30) {
+				messageList = messageList.subList(0, 30);
+			}
+			return messageList;
+		}
+		return null;
 	}
 
 	public static void main(String[] args) throws Exception {
@@ -167,15 +233,19 @@ public class Engine {
 		JavaReceiverInputDStream<String> customReceiverStream = jssc.receiverStream(new CustomReceiver());
 		WebSocketContainer wordCountContainer = null;
 		WebSocketContainer timeIntervalContainer = null;
+		WebSocketContainer hashtagCountContainer = null;
 
 		try {
 			wordCountContainer = ContainerProvider.getWebSocketContainer();
 			timeIntervalContainer = ContainerProvider.getWebSocketContainer();
+			hashtagCountContainer = ContainerProvider.getWebSocketContainer();
 			System.out.println("Connecting");
 			wordCountSession = wordCountContainer.connectToServer(Engine.class,
 					URI.create("ws://localhost:8080/websocketserver-0.0.1-SNAPSHOT/word_count/spark_1"));
 			timeIntervalSession = timeIntervalContainer.connectToServer(Engine.class,
 					URI.create("ws://localhost:8080/websocketserver-0.0.1-SNAPSHOT/time_interval_count/spark_1"));
+			//hashtagCountSession = hashtagCountContainer.connectToServer(Engine.class,
+			//		URI.create("ws://localhost:8080/websocketserver-0.0.1-SNAPSHOT/hashtag_count/spark_1"));
 		} catch (Exception e) {
 			System.out.println("Problem connecting to websocket server");
 			// e.printStackTrace();
@@ -187,37 +257,17 @@ public class Engine {
 		});
 
 		cleanedStream.foreachRDD(s -> {
-			System.out.println("for each rdd2");
-			List<JSONObject> messageList = new ArrayList<JSONObject>();
 
-			// Words added to maps in clean and reduce method
-			if (!wordCountMap.isEmpty()) {
-				for (Map.Entry<String, Integer> entry : wordCountMap.entrySet()) {
-					// construct json object
-					JSONObject JO = new JSONObject();
-					JO.put("text", entry.getKey());
-					JO.put("count", entry.getValue());
-					// JO.put("timestamp", timeObj.timestamp);
-					String json = JO.toString();
-					messageList.add(JO);
-				}
-				messageList.sort((o1, o2) -> {
-					if ((int) o1.get("count") < (int) o2.get("count")) {
-						return 1;
-					} else if ((int) o1.get("count") > (int) o2.get("count")) {
-						return -1;
-					}
-					return 0;
-				});
-				// If the number of words is > 30, take the largest 30 by count
-				if (messageList.size() > 30) {
-					messageList = messageList.subList(0, 30);
-				}
-				
-				JSONObject[] arr = messageList.toArray(new JSONObject[messageList.size()]);
-				String messageArrayAsString = messageList.toString();
-				sendToWS(wordCountSession, messageArrayAsString);
+			List<JSONObject> wordCountList = createSortedList(wordCountMap);
+			if (wordCountList != null) {
+				sendToWS(wordCountSession, wordCountList.toString());
 			}
+			
+			List<JSONObject> hashtagCountList = createSortedList(hashtagCountMap);
+			if (hashtagCountList != null) {
+				//sendToWS(hashtagCountSession, hashtagCountListAsString.toString());
+			}
+
 			// sendToWS(timeIntervalSession, messageArrayAsString );
 		});
 
